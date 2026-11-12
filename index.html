@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f1420">
+<title>שער החידון</title>
+<style>
+  :root {
+    --bg: #0f1420; --card: #1a2133; --line: #2b3550; --text: #eef1f8; --muted: #8f9bb8;
+    --accent: #6c8cff; --ok: #35c486; --bad: #f0616d;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 17px/1.5 -apple-system, "Segoe UI", Arial, sans-serif;
+    min-height: 100dvh; padding: max(20px, env(safe-area-inset-top)) 16px 32px;
+  }
+  main { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 8px 0 4px; }
+  h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 26px 0 10px; }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 15px; }
+  code { direction: ltr; unicode-bidi: isolate; font: 0.9em ui-monospace, Menlo, Consolas, monospace;
+    background: #0b0f19; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; }
+  .btn { display: block; width: 100%; padding: 15px; border-radius: 14px; background: var(--accent);
+    color: #fff; font-weight: 700; text-align: center; text-decoration: none; margin-top: 12px; }
+  .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); font-weight: 500; }
+  .btn:disabled { opacity: .45; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 10px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .dots { display: flex; gap: 6px; direction: ltr; margin: 14px 0 18px; }
+  .dots i { flex: 1; height: 6px; border-radius: 3px; background: var(--line); }
+  .dots i.ok { background: var(--ok); } .dots i.bad { background: var(--bad); } .dots i.cur { background: var(--text); }
+  .meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; }
+  .q { font-size: 20px; font-weight: 600; margin: 6px 0 18px; white-space: pre-line; overflow-wrap: anywhere; }
+  .q code { font-size: .8em; }
+  .ans { display: block; width: 100%; text-align: right; padding: 14px 16px; margin-bottom: 10px;
+    border-radius: 14px; background: var(--card); border: 1px solid var(--line); overflow-wrap: anywhere; }
+  .ans.ok { border-color: var(--ok); background: #153527; }
+  .ans.bad { border-color: var(--bad); background: #3a1a20; }
+  .big { font-size: 64px; text-align: center; margin: 24px 0 0; }
+  .center { text-align: center; }
+  ol { padding-inline-start: 22px; } li { margin: 6px 0; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; margin-top: 10px; }
+  summary { font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script src="questions.js"></script>
+<script>
+const TOTAL = 5, PASS = 3, COOLDOWN = 15;
+const LEVELS = [1, 1, 2, 2, 3];               // קל, קל, בינוני, בינוני, קשה
+const LEVEL_NAME = { 1: "קל", 2: "בינוני", 3: "קשה" };
+const UNLOCK_SHORTCUT = "QuizUnlock";
+const APPS = {
+  instagram: { name: "אינסטגרם", url: "instagram://" },
+  facebook:  { name: "פייסבוק",  url: "fb://" },
+  youtube:   { name: "יוטיוב",   url: "youtube://" },
+  tiktok:    { name: "טיקטוק",   url: "tiktok://" },
+  x:         { name: "X / טוויטר", url: "twitter://" },
+  snapchat:  { name: "סנאפצ'ט",  url: "snapchat://" },
+  reddit:    { name: "רדיט",     url: "reddit://" },
+  whatsapp:  { name: "וואטסאפ",  url: "whatsapp://" },
+  telegram:  { name: "טלגרם",    url: "tg://" },
+};
+
+const store = {
+  get(k, def) { try { const v = JSON.parse(localStorage.getItem("qg." + k)); return v ?? def; } catch { return def; } },
+  set(k, v) { try { localStorage.setItem("qg." + k, JSON.stringify(v)); } catch {} },
+};
+const valid = (list, table) => list.filter(k => table[k]);
+let topics = valid(store.get("topics", Object.keys(TOPICS)), TOPICS);
+if (!topics.length) topics = Object.keys(TOPICS);
+let apps = valid(store.get("apps", ["instagram", "facebook", "youtube"]), APPS);
+
+const params = new URLSearchParams(location.search);
+const gateMode = params.has("gate") || params.has("app");
+const targetApp = APPS[params.get("app")] ? params.get("app") : null;
+
+const app = document.getElementById("app");
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+function pickQuestions() {
+  const seen = new Set(store.get("seen", []));
+  const pool = topics.flatMap(t => QUESTIONS[t].map((q, i) => ({ ...q, id: t + i, topic: t })));
+  const chosen = [];
+  for (const level of LEVELS) {
+    const ofLevel = shuffle(pool.filter(q => q.d === level && !chosen.includes(q)));
+    chosen.push(ofLevel.find(q => !seen.has(q.id)) || ofLevel[0]);
+  }
+  // זוכרים שאלות אחרונות כדי לא לחזור עליהן מהר מדי
+  store.set("seen", [...seen, ...chosen.map(q => q.id)].slice(-Math.floor(pool.length / 2)));
+  return chosen.map(q => ({ ...q, options: shuffle(q.a), correct: q.a[0] }));
+}
+
+let quiz;
+function startQuiz() {
+  quiz = { qs: pickQuestions(), i: 0, results: [] };
+  renderQuestion();
+}
+
+function dots() {
+  return '<div class="dots">' + quiz.qs.map((_, i) => {
+    const r = quiz.results[i];
+    return `<i class="${r === true ? "ok" : r === false ? "bad" : i === quiz.i ? "cur" : ""}"></i>`;
+  }).join("") + "</div>";
+}
+
+function renderQuestion() {
+  const q = quiz.qs[quiz.i];
+  app.innerHTML = `
+    <div class="meta"><span>שאלה ${quiz.i + 1} מתוך ${TOTAL} · ${LEVEL_NAME[q.d]}</span><span dir="ltr">${TOPICS[q.topic].name}</span></div>
+    ${dots()}
+    <div class="q">${fmt(q.q)}</div>
+    <div id="answers">${q.options.map((o, i) => `<button class="ans" dir="${/[\u0590-\u05FF]/.test(o) ? "rtl" : "ltr"}" data-i="${i}">${esc(o)}</button>`).join("")}</div>
+    <div id="next"></div>`;
+  app.querySelectorAll(".ans").forEach(b => b.onclick = () => answer(+b.dataset.i));
+}
+
+function answer(i) {
+  const q = quiz.qs[quiz.i];
+  const right = q.options[i] === q.correct;
+  quiz.results.push(right);
+  app.querySelectorAll(".ans").forEach((b, j) => {
+    b.disabled = true;
+    if (q.options[j] === q.correct) b.classList.add("ok");
+    else if (j === i) b.classList.add("bad");
+  });
+  app.querySelector(".dots").outerHTML = dots();
+  const last = quiz.i === TOTAL - 1;
+  document.getElementById("next").innerHTML = `<button class="btn">${last ? "לתוצאה" : "הבא"}</button>`;
+  document.querySelector("#next .btn").onclick = () => { quiz.i++; last ? renderResult() : renderQuestion(); };
+}
+
+function unlockLink(key) {
+  return `shortcuts://run-shortcut?name=${encodeURIComponent(UNLOCK_SHORTCUT)}&input=text&text=${encodeURIComponent(APPS[key].url)}`;
+}
+
+function renderResult() {
+  const score = quiz.results.filter(Boolean).length;
+  const passed = score >= PASS;
+  let actions;
+  if (passed && gateMode) {
+    const list = targetApp ? [targetApp] : apps;
+    actions = list.map(k => `<a class="btn" href="${unlockLink(k)}">פתח את ${APPS[k].name}</a>`).join("") +
+      `<p class="muted center" style="margin-top:14px">או פשוט סגור את הדף וחזור למה שעשית 😉</p>`;
+  } else if (passed) {
+    actions = `<button class="btn" id="again">עוד סיבוב</button><button class="btn ghost" id="home">חזרה</button>`;
+  } else {
+    actions = `<button class="btn" id="again" disabled></button>` + (gateMode ? "" : `<button class="btn ghost" id="home">חזרה</button>`);
+  }
+  app.innerHTML = `
+    <div class="big">${passed ? "🎉" : "🔒"}</div>
+    <h1 class="center">${score} מתוך ${TOTAL}</h1>
+    <p class="center muted">${passed ? "עברת! הכניסה מאושרת." : `צריך לפחות ${PASS} תשובות נכונות.`}</p>
+    ${dots()}
+    ${actions}`;
+  const again = document.getElementById("again"), home = document.getElementById("home");
+  if (home) home.onclick = renderHome;
+  if (again) {
+    again.onclick = startQuiz;
+    if (!passed) {
+      let left = COOLDOWN;
+      const tick = () => {
+        if (!again.isConnected) return;
+        again.textContent = left > 0 ? `אפשר לנסות שוב בעוד ${left}` : "נסה שוב";
+        again.disabled = left > 0;
+        if (left-- > 0) setTimeout(tick, 1000);
+      };
+      tick();
+    }
+  }
+}
+
+function chips(table, selected, label) {
+  return Object.entries(table).map(([k, v]) =>
+    `<button class="chip ${selected.includes(k) ? "on" : ""}" data-${label}="${k}" dir="auto">${esc(v.name)}</button>`).join("");
+}
+
+function renderHome() {
+  const gateUrl = location.origin + location.pathname + "?gate";
+  app.innerHTML = `
+    <h1>שער החידון 🔐</h1>
+    <p class="muted">${TOTAL} שאלות קצרות, מהקל לקשה. ${PASS} נכונות פותחות את האפליקציה.</p>
+
+    <h2>נושאי השאלות</h2>
+    <div class="chips">${chips(TOPICS, topics, "topic")}</div>
+
+    <h2>אפליקציות חסומות</h2>
+    <div class="chips">${chips(APPS, apps, "app")}</div>
+
+    <button class="btn" id="start">חידון לתרגול</button>
+
+    <h2>הגדרה חד־פעמית באייפון</h2>
+    <details>
+      <summary>1. קיצור "פתיחה" (QuizUnlock)</summary>
+      <ol>
+        <li>באפליקציית <b>קיצורים</b> (Shortcuts) צור קיצור חדש בשם <code>QuizUnlock</code>.</li>
+        <li>הוסף פעולת <b>טקסט</b> עם התוכן <code>1</code>.</li>
+        <li>הוסף <b>שמירת קובץ</b>: כבה "שאל היכן לשמור", נתיב <code>quizgate.txt</code>, הפעל "החלף אם קיים".</li>
+        <li>הוסף <b>פתיחת כתובות URL</b> ובחר כקלט את <b>קלט הקיצור</b> (Shortcut Input).</li>
+      </ol>
+    </details>
+    <details>
+      <summary>2. קיצור "שער" (QuizGate)</summary>
+      <ol>
+        <li>צור קיצור חדש בשם <code>QuizGate</code>.</li>
+        <li>הוסף <b>קבלת קובץ מתיקייה</b>: תיקיית Shortcuts, נתיב <code>quizgate.txt</code>, כבה "שגיאה אם לא נמצא".</li>
+        <li>הוסף <b>אם</b>: "קובץ" <b>מכיל</b> <code>1</code>.</li>
+        <li>בתוך ה"אם": פעולת <b>טקסט</b> עם <code>0</code>, ואחריה <b>שמירת קובץ</b> לאותו נתיב <code>quizgate.txt</code> (בלי לשאול, עם החלפה).</li>
+        <li>בתוך ה"אחרת": <b>פתיחת כתובות URL</b> עם הכתובת:<br><code id="gateUrl">${esc(gateUrl)}</code></li>
+      </ol>
+      <button class="btn ghost" id="copy">העתק את הכתובת</button>
+    </details>
+    <details>
+      <summary>3. אוטומציה</summary>
+      <ol>
+        <li>בקיצורים ← לשונית <b>אוטומציה</b> ← אוטומציה חדשה ← <b>יישום</b> (App).</li>
+        <li>בחר את האפליקציות שרוצים לחסום, סמן <b>נפתח</b> (Is Opened).</li>
+        <li>בחר <b>הפעל מיד</b> (Run Immediately) וכבה "הודע בעת הפעלה".</li>
+        <li>כפעולה בחר <b>הפעלת קיצור</b> ← <code>QuizGate</code>.</li>
+      </ol>
+    </details>
+    <p class="muted" style="margin-top:14px">שים לב: את הנושאים והאפליקציות בוחרים כאן ב-Safari, כי שם נפתח החידון.</p>`;
+
+  app.querySelectorAll("[data-topic]").forEach(b => b.onclick = () => {
+    const k = b.dataset.topic;
+    if (topics.includes(k)) { if (topics.length === 1) return; topics = topics.filter(t => t !== k); }
+    else topics.push(k);
+    store.set("topics", topics); b.classList.toggle("on");
+  });
+  app.querySelectorAll("[data-app]").forEach(b => b.onclick = () => {
+    const k = b.dataset.app;
+    apps = apps.includes(k) ? apps.filter(a => a !== k) : [...apps, k];
+    store.set("apps", apps); b.classList.toggle("on");
+  });
+  document.getElementById("start").onclick = startQuiz;
+  document.getElementById("copy").onclick = async e => {
+    try { await navigator.clipboard.writeText(gateUrl); e.target.textContent = "הועתק ✓"; }
+    catch { e.target.textContent = "לא הצלחתי להעתיק, סמן ידנית"; }
+  };
+}
+
+gateMode ? startQuiz() : renderHome();
+</script>
+</body>
+</html>
